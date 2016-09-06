@@ -1385,7 +1385,8 @@ def forceRescan(ComicID, archive=None, module=None):
     myDB.upsert("comics", newValueStat, controlValueStat)
     #enforce permissions
     logger.fdebug(module + ' Ensuring permissions/ownership enforced for series: ' + rescan['ComicName'])
-    filechecker.setperms(rescan['ComicLocation'])
+    #filechecker.setperms(rescan['ComicLocation'])
+    #Disabling this because it was corrupting some comics because it had to download them from ACD change ACL then upload. Permissions WON'T be wrong because they're uploaded and being accessed via a mounted dir.
     logger.info(module + ' I have physically found ' + str(foundcount) + ' issues, ignored ' + str(ignorecount) + ' issues, snatched ' + str(snatchedcount) + ' issues, and accounted for ' + str(totalarc) + ' in an Archived state [ Total Issue Count: ' + str(havefiles) + ' / ' + str(combined_total) + ' ]')
 
     return
