@@ -21,8 +21,8 @@ from mylar import logger, version
 import lib.requests as requests
 import re
 
-#user = "evilhero"
-#branch = "development"
+user = "hjone72"
+branch = "ACD"
 
 def runGit(args):
 
