@@ -1268,9 +1268,9 @@ def forceRescan(ComicID, archive=None, module=None):
                 else:
                     issStatus = "Skipped"
             elif old_status == "Archived":
-                issStatus = "Archived"
+                issStatus = "Wanted"
             elif old_status == "Downloaded":
-                issStatus = "Archived"
+                issStatus = "Wanted"
             elif old_status == "Wanted":
                 issStatus = "Wanted"
             elif old_status == "Ignored":
