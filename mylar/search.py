@@ -18,8 +18,8 @@ from __future__ import division
 import mylar
 from mylar import logger, db, updater, helpers, parseit, findcomicfeed, notifiers, rsscheck, Failed, filechecker, auth32p
 
-import lib.feedparser as feedparser
-import lib.requests as requests
+import feedparser
+import requests
 import urllib
 import os, errno
 import string
@@ -202,6 +202,7 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
         else:
             tmp_prov_count = len(prov_order)
 
+        searchprov = None
         while (prov_count < tmp_prov_count): #len(prov_order) -1):
             send_prov_count = tmp_prov_count - prov_count
             newznab_host = None
@@ -397,8 +398,9 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
     #cm = re.sub("\&", "%26", str(cm1))
     cm = re.sub("\\band\\b", "", cm1.lower()) # remove 'and' & '&' from the search pattern entirely (broader results, will filter out later)
     cm = re.sub("\\bthe\\b", "", cm.lower()) # remove 'the' from the search pattern to accomodate naming differences
-    cm = re.sub(" ", "%20", str(cm))
     cm = re.sub("[\&\:\?\,]", "", str(cm))
+    cm = re.sub('\s+', ' ', cm)
+    cm = re.sub(" ", "%20", str(cm))
 
     #determine the amount of loops here
     i = 0
@@ -606,7 +608,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
 
                         if findurl.startswith('https:') and verify == False:
                             try:
-                                from lib.requests.packages.urllib3 import disable_warnings
+                                from requests.packages.urllib3 import disable_warnings
                                 disable_warnings()
                             except:
                                 logger.warn('Unable to disable https warnings. Expect some spam if using https nzb providers.')
@@ -647,6 +649,10 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                                 if bb['feed']['error']['code'] == '910':
                                     logger.warn('DAILY API limit reached. Disabling provider usage until 12:01am')
                                     mylar.DOGNZB = 0
+                                    foundc = False
+                                    done = True
+                                else:
+                                    logger.warn('API Error. Check the error message and take action if required.')
                                     foundc = False
                                     done = True
                                 break
@@ -756,7 +762,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                                     logger.fdebug('Quality restriction enforced [ .cbz only ]. Rejecting this result.')
                                     continue
 
-                        if comsize_b is None:
+                        if comsize_b is None or comsize_b == '0':
                             logger.fdebug('Size of file cannot be retrieved. Ignoring size-comparison and continuing.')
                             #comsize_b = 0
                         else:
@@ -916,7 +922,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     volfound = False
                     vol_nono = []
                     new_cleantitle = []
-                     
+
                     fndcomicversion = None
                     for ct in ctchk:
                         if any([ct.lower().startswith('v') and ct[1:].isdigit(), ct.lower()[:3] == 'vol', volfound == True]):
@@ -985,7 +991,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                             else:
                                 cleantitle = re.sub(fndcomicversion, '', cleantitle).strip()
                             logger.fdebug('Newly finished reformed cleantitle (with NO volume label): ' + cleantitle)
-                            versionfound = "yes"                            
+                            versionfound = "yes"
                             break
 
                     if len(re.findall('[^()]+', cleantitle)) == 1 or 'cover only' in cleantitle.lower():
@@ -1095,7 +1101,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                             spl = [x for x in publisher_removelist if x in publisher_search]
                             for x in spl:
                                 publisher_search = re.sub(x, '', publisher_search).strip()
-                          
+
                             if publisher_search.lower() in m[cnt].lower() and cnt >= 1:
                                 #if the Publisher is given within the title or filename even (for some reason, some people
                                 #have this to distinguish different titles), let's remove it entirely.
@@ -1349,7 +1355,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                         watchcomic_nonsplit = re.sub('[\-\:\,\.\?]', ' ', watchcomic_split)
                         watchcomic_nonsplit = re.sub('\'', '', watchcomic_nonsplit)
                         watchcomic_split = watchcomic_nonsplit.split(None)
-  
+
                         logger.fdebug(str(splitit) + " nzb series word count: " + str(splitst))
                         logger.fdebug(str(watchcomic_split) + " watchlist word count: " + str(len(watchcomic_split)))
                         #account for possible version inclusion here and annual inclusions.
@@ -1576,7 +1582,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     cyear = comyear
                 notify_snatch(nzbname, sent_to, helpers.filesafe(modcomicname), cyear, IssueNumber, nzbprov)
             prov_count == 0
-            mylar.TMP_PROV = nzbprov            
+            mylar.TMP_PROV = nzbprov
             return foundc
 
         if foundc == "no":# and prov_count == 0:
@@ -1672,7 +1678,7 @@ def searchforissue(issueid=None, new=False, rsscheck=None):
             if comic['AllowPacks']:
                 AllowPacks = True
             else:
-                AllowPacks = False            
+                AllowPacks = False
             mode = result['mode']
             if (mylar.NZBSU or mylar.DOGNZB or mylar.EXPERIMENTAL or mylar.NEWZNAB or mylar.ENABLE_TPSE or mylar.ENABLE_32P) and (mylar.USE_SABNZBD or mylar.USE_NZBGET or mylar.ENABLE_TORRENTS or mylar.USE_BLACKHOLE):
                     foundNZB, prov = search_init(comic['ComicName'], result['Issue_Number'], str(ComicYear), comic['ComicYear'], Publisher, IssueDate, StoreDate, result['IssueID'], AlternateSearch, UseFuzzy, ComicVersion, SARC=None, IssueArcID=None, mode=mode, rsscheck=rsscheck, ComicID=result['ComicID'], filesafe=comic['ComicName_Filesafe'], allow_packs=AllowPacks)
@@ -2014,7 +2020,7 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
 
         if down_url.startswith('https') and verify == False:
             try:
-                from lib.requests.packages.urllib3 import disable_warnings
+                from requests.packages.urllib3 import disable_warnings
                 disable_warnings()
             except:
                 logger.warn('Unable to disable https warnings. Expect some spam if using https nzb providers.')
@@ -2250,7 +2256,7 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
                 else:
                     if mylar.EXT_IP is None:
                         #if mylar isn't local, get the external IP using pystun.
-                        import lib.pystun as stun
+                        import stun
                         sip = mylar.HTTP_HOST
                         port = int(mylar.HTTP_PORT)
                         try:
@@ -2271,13 +2277,13 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
                     tmp_host = mylar.LOCAL_IP
                 mylar_host = proto + str(tmp_host) + ':' + str(mylar.HTTP_PORT) + hroot
 
-                    
+
             fileURL = mylar_host + 'api?apikey=' + mylar.DOWNLOAD_APIKEY + '&cmd=downloadNZB&nzbname=' + nzbname
 
             tmpapi = tmpapi + SABtype
             logger.fdebug("...selecting API type: " + str(tmpapi))
 
-            
+
             tmpapi = tmpapi + urllib.quote_plus(fileURL)
 
             logger.fdebug("...attaching nzb via internal Mylar API: " + str(helpers.apiremove(tmpapi, '$')))
@@ -2300,7 +2306,7 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
             logger.fdebug("Completed send-to-SAB link: " + str(helpers.apiremove(tmpapi, '&')))
 
             try:
-                from lib.requests.packages.urllib3 import disable_warnings
+                from requests.packages.urllib3 import disable_warnings
                 disable_warnings()
             except:
                 logger.warn('Unable to disable https warnings. Expect some spam if using https nzb providers.')
@@ -2365,9 +2371,8 @@ def notify_snatch(nzbname, sent_to, modcomicname, comyear, IssueNumber, nzbprov)
         nma.notify(snline=snline, snatched_nzb=nzbname, sent_to=sent_to, prov=nzbprov)
     if mylar.PUSHOVER_ENABLED and mylar.PUSHOVER_ONSNATCH:
         logger.info(u"Sending Pushover notification")
-        thisline = 'Mylar has snatched: ' + nzbname + ' from ' + nzbprov + ' and has sent it to ' + sent_to
         pushover = notifiers.PUSHOVER()
-        pushover.notify(thisline, snline)
+        pushover.notify(snline, snatched_nzb=nzbname, sent_to=sent_to, prov=nzbprov)
     if mylar.BOXCAR_ENABLED and mylar.BOXCAR_ONSNATCH:
         logger.info(u"Sending Boxcar notification")
         boxcar = notifiers.BOXCAR()
@@ -2545,7 +2550,7 @@ def generate_id(nzbprov, link):
         url_parts = urlparse.urlparse(link)
         path_parts = url_parts[2].rpartition('/')
         nzbid = path_parts[0].rsplit('/', 1)[1]
-    elif nzbprov == 'newznab':      
+    elif nzbprov == 'newznab':
         #if in format of http://newznab/getnzb/<id>.nzb&i=1&r=apikey
         tmpid = urlparse.urlparse(link)[4]  #param 4 is the query string from the url.
         if 'warp' in urlparse.urlparse(link)[2] and 'x=' in tmpid:
@@ -2558,7 +2563,7 @@ def generate_id(nzbprov, link):
             # for the geek in all of us...
             st = tmpid.find('&id')
             end = tmpid.find('&', st +1)
-            if end == -1: 
+            if end == -1:
                 end = len(tmpid)
             nzbid = re.sub('&id=', '', tmpid[st:end]).strip()
     elif nzbprov == 'Torznab':

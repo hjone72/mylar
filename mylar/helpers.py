@@ -579,11 +579,13 @@ def rename_param(comicid, comicname, issue, ofilename, comicyear=None, issueid=N
                     logger.fdebug('Annual detected within series title of ' + series + '. Not auto-correcting issue #')
 
             seriesfilename = seriesfilename.encode('ascii', 'ignore').strip()
-            filebad = [':', ',', '/', '?', '!', '\''] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
+            filebad = [':', ',', '/', '?', '!', '\'', '\"', '\*'] #in u_comicname or '/' in u_comicname or ',' in u_comicname or '?' in u_comicname:
             for dbd in filebad:
                 if dbd in seriesfilename:
-                    if dbd == '/': repthechar = '-'
-                    else: repthechar = ''
+                    if any([dbd == '/', dbd == '*']): 
+                        repthechar = '-'
+                    else:
+                        repthechar = ''
                     seriesfilename = seriesfilename.replace(dbd, repthechar)
                     logger.fdebug('Altering series name due to filenaming restrictions: ' + seriesfilename)
 
@@ -1104,7 +1106,7 @@ def renamefile_readingorder(readorder):
     import logger
     logger.fdebug('readingorder#: ' + str(readorder))
     if int(readorder) < 10: readord = "00" + str(readorder)
-    elif int(readorder) > 10 and int(readorder) < 99: readord = "0" + str(readorder)
+    elif int(readorder) >= 10 and int(readorder) < 99: readord = "0" + str(readorder)
     else: readord = str(readorder)
 
     return readord
@@ -1883,7 +1885,7 @@ def create_https_certificates(ssl_cert, ssl_key):
     from mylar import logger
 
     from OpenSSL import crypto
-    from lib.certgen import createKeyPair, createCertRequest, createCertificate, \
+    from certgen import createKeyPair, createCertRequest, createCertificate, \
         TYPE_RSA, serial
 
     # Create the CA Certificate
@@ -1916,7 +1918,7 @@ def torrent_create(site, linkid, alt=None):
         else:
             url = 'http://torrentproject.se/torrent/' + str(linkid) + '.torrent'
     elif site == 'DEM':
-        url = 'https://www.demonoid.pw/files/download/' + str(linkid) + '/'
+        url = 'https://www.demonoid.cc/files/download/' + str(linkid) + '/'
     elif site == 'WWT':
         url = 'https://worldwidetorrents.eu/download.php'
 
@@ -1953,7 +1955,7 @@ def parse_32pfeed(rssfeedline):
 
     return KEYS_32P
 
-def humanize_time(self, amount, units = 'seconds'):
+def humanize_time(amount, units = 'seconds'):
 
     def process_time(amount, units):
 
@@ -2093,6 +2095,13 @@ def issue_find_ids(ComicName, ComicID, pack, IssueNumber):
     issues['valid'] = valid
     return issues
 
+def conversion(value):
+    if type(value) == str:
+        try:
+            value = value.decode('utf-8')
+        except:
+            value = value.decode('windows-1252')
+    return value
 
 #def file_ops(path,dst):
 #    # path = source path + filename

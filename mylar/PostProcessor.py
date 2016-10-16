@@ -261,7 +261,7 @@ class PostProcessor(object):
                 alt_db = myDB.select("SELECT * FROM Comics WHERE AlternateSearch != 'None'")
                 if alt_db is not None:
                     for aldb in alt_db:
-                        as_d = filechecker.FileChecker(AlternateSearch=aldb['AlternateSearch'].decode('utf-8'))
+                        as_d = filechecker.FileChecker(AlternateSearch=helpers.conversion(aldb['AlternateSearch']))
                         as_dinfo = as_d.altcheck()
                         alt_list.append({'AS_Alt':   as_dinfo['AS_Alt'],
                                          'AS_Tuple': as_dinfo['AS_Tuple'],
@@ -270,8 +270,8 @@ class PostProcessor(object):
                 manual_list = []
 
                 for fl in filelist['comiclist']:
-                    as_d = filechecker.FileChecker()#watchcomic=fl['series_name'].decode('utf-8'))
-                    as_dinfo = as_d.dynamic_replace(fl['series_name'])
+                    as_d = filechecker.FileChecker()
+                    as_dinfo = as_d.dynamic_replace(helpers.conversion(fl['series_name']))
                     mod_seriesname = as_dinfo['mod_seriesname']
                     loopchk = []
                     for x in alt_list:
@@ -279,6 +279,8 @@ class PostProcessor(object):
                         for ab in x['AS_Alt']:
                             tmp_ab = re.sub(' ', '', ab)
                             tmp_mod_seriesname = re.sub(' ', '', mod_seriesname)
+                            logger.info(tmp_mod_seriesname)
+                            logger.info(tmp_ab.lower)
                             if re.sub('\|', '', tmp_mod_seriesname.lower()).strip() == re.sub('\|', '', tmp_ab.lower()).strip():
                                 if not any(re.sub('[\|\s]', '', cname.lower()) == x for x in loopchk):
                                     loopchk.append(re.sub('[\|\s]', '', cname.lower()))
@@ -494,9 +496,9 @@ class PostProcessor(object):
 
                                     if datematch == 'True':
                                         if watchmatch['sub']:
-                                            clocation = os.path.join(watchmatch['comiclocation'], watchmatch['sub'], watchmatch['comicfilename'].decode('utf-8'))
+                                            clocation = os.path.join(watchmatch['comiclocation'], watchmatch['sub'], helpers.conversion(watchmatch['comicfilename']))
                                         else:
-                                            clocation = os.path.join(watchmatch['comiclocation'],watchmatch['comicfilename'].decode('utf-8'))
+                                            clocation = os.path.join(watchmatch['comiclocation'],helpers.conversion(watchmatch['comicfilename']))
                                         manual_list.append({"ComicLocation":   clocation,
                                                             "ComicID":         cs['ComicID'],
                                                             "IssueID":         issuechk['IssueID'],
@@ -509,7 +511,7 @@ class PostProcessor(object):
                                     logger.fdebug(module + '[NON-MATCH: ' + cs['ComicName'] + '-' + cs['ComicID'] + '] Incorrect series - not populating..continuing post-processing')
                                     continue
                                 #ccnt+=1
-                        logger.fdebug(module + '[SUCCESSFUL MATCH: ' + cs['ComicName'] + '-' + cs['ComicID'] + '] Match verified for ' + fl['comicfilename'].decode('utf-8'))
+                        logger.fdebug(module + '[SUCCESSFUL MATCH: ' + cs['ComicName'] + '-' + cs['ComicID'] + '] Match verified for ' + helpers.conversion(fl['comicfilename']))
                         break
 
                 logger.fdebug(module + ' There are ' + str(len(manual_list)) + ' files found that match on your watchlist, ' + str(int(filelist['comiccount'] - len(manual_list))) + ' do not match anything and will be ignored.')
@@ -522,8 +524,8 @@ class PostProcessor(object):
                     #mod_seriesname = '%' + re.sub(' ', '%', fl['series_name']).strip() + '%'
                     #arc_series = myDB.select("SELECT * FROM readinglist WHERE ComicName LIKE?", [fl['series_name']]) # by StoryArcID")
 
-                    as_d = filechecker.FileChecker(watchcomic=fl['series_name'].decode('utf-8'))
-                    as_dinfo = as_d.dynamic_replace(fl['series_name'])
+                    as_d = filechecker.FileChecker()
+                    as_dinfo = as_d.dynamic_replace(helpers.conversion(fl['series_name']))
                     mod_seriesname = as_dinfo['mod_seriesname']
                     arcloopchk = []
                     for x in alt_list:
@@ -626,17 +628,19 @@ class PostProcessor(object):
 
                                             logger.info('StoreDate ' + str(issuechk['StoreDate']))
                                             logger.info('IssueDate: ' + str(issuechk['IssueDate']))
-                                            if issuechk['StoreDate'] is not None and issuechk['StoreDate'] != '0000-00-00':
-                                                monthval = issuechk['StoreDate']
-                                                if int(issuechk['StoreDate'][:4]) < int(arcmatch['issue_year']):
-                                                    logger.fdebug(module + ' ' + str(issuechk['StoreDate']) + ' is before the issue year of ' + str(arcmatch['issue_year']) + ' that was discovered in the filename')
-                                                    datematch = "False"
-   
-                                                else:
-                                                    monthval = issuechk['IssueDate']
-                                                    if int(issuechk['IssueDate'][:4]) < int(arcmatch['issue_year']):
-                                                        logger.fdebug(module + ' ' + str(issuechk['IssueDate']) + ' is before the issue year ' + str(arcmatch['issue_year']) + ' that was discovered in the filename')
+                                            if all([issuechk['StoreDate'] is not None, issuechk['StoreDate'] != '0000-00-00']) or all([issuechk['IssueDate'] is not None, issuechk['IssueDate'] != '0000-00-00']):
+                                                if issuechk['StoreDate'] == '0000-00-00':
+                                                    datevalue = issuechk['IssueDate']
+                                                    if int(datevalue[:4]) < int(arcmatch['issue_year']):
+                                                        logger.fdebug(module + ' ' + str(datevalue[:4]) + ' is before the issue year ' + str(arcmatch['issue_year']) + ' that was discovered in the filename')
                                                         datematch = "False"
+                                                else:
+                                                    datevalue = issuechk['StoreDate']
+                                                    if int(datevalue[:4]) < int(arcmatch['issue_year']):
+                                                        logger.fdebug(module + ' ' + str(datevalue[:4]) + ' is before the issue year of ' + str(arcmatch['issue_year']) + ' that was discovered in the filename')
+                                                        datematch = "False"
+
+                                                monthval = datevalue
 
                                                 if int(monthval[5:7]) == 11 or int(monthval[5:7]) == 12:
                                                     issyr = int(monthval[:4]) + 1
@@ -670,9 +674,9 @@ class PostProcessor(object):
                                                         passit = True
                                                 if passit == False:
                                                     if arcmatch['sub']:
-                                                        clocation = os.path.join(arcmatch['comiclocation'], arcmatch['sub'], arcmatch['comicfilename'].decode('utf-8'))
+                                                        clocation = os.path.join(arcmatch['comiclocation'], arcmatch['sub'], helpers.conversion(arcmatch['comicfilename']))
                                                     else:
-                                                        clocation = os.path.join(arcmatch['comiclocation'], arcmatch['comicfilename'].decode('utf-8'))
+                                                        clocation = os.path.join(arcmatch['comiclocation'], helpers.conversion(arcmatch['comicfilename']))
                                                     logger.info('[' + k + ' #' + issuechk['IssueNumber'] + '] MATCH: ' + clocation + ' / ' + str(issuechk['IssueID']) + ' / ' + str(v[i]['ArcValues']['IssueID']))
                                                     manual_arclist.append({"ComicLocation":   clocation,
                                                                            "ComicID":         v[i]['WatchValues']['ComicID'],
@@ -706,8 +710,8 @@ class PostProcessor(object):
                             logger.fdebug(module + ' Story Arc Directory set to : ' + storyarcd)
                             grdst = storyarcd
                         else:
-                            logger.fdebug(module + ' Story Arc Directory set to : ' + mylar.GRABBAG_DIR)
-                            storyarcd = os.path.join(mylar.DESTINATION_DIR, mylar.GRABBAG_DIR)
+                            logger.fdebug(module + ' Story Arc Directory not configured. Using grabbag directory : ' + mylar.GRABBAG_DIR)
+                            storyarcd = mylar.GRABBAG_DIR
                             grdst = storyarcd
 
                         #tag the meta.
@@ -762,7 +766,7 @@ class PostProcessor(object):
                             if int(ml['ReadingOrder']) < 10: readord = "00" + str(ml['ReadingOrder'])
                             elif int(ml['ReadingOrder']) >= 10 and int(ml['ReadingOrder']) <= 99: readord = "0" + str(ml['ReadingOrder'])
                             else: readord = str(ml['ReadingOrder'])
-                            dfilename = str(readord) + "-" + dfilename
+                            dfilename = str(readord) + "-" + os.path.split(dfilename)[1]
                         else:
                             dfilename = dfilename
 
@@ -1178,7 +1182,7 @@ class PostProcessor(object):
             comicnzb = myDB.selectone("SELECT * from comics WHERE comicid=?", [comicid]).fetchone()
             issuenzb = myDB.selectone("SELECT * from issues WHERE issueid=? AND comicid=? AND ComicName NOT NULL", [issueid, comicid]).fetchone()
             if ml is not None and mylar.SNATCHEDTORRENT_NOTIFY:
-                snatchnzb = myDB.selectone("SELECT * from snatched WHERE IssueID=? AND ComicID=? AND (provider=? OR provider=?) AND Status='Snatched'", [issueid, comicid, 'KAT', '32P']).fetchone()
+                snatchnzb = myDB.selectone("SELECT * from snatched WHERE IssueID=? AND ComicID=? AND (provider=? OR provider=? OR provider=? OR provider=?) AND Status='Snatched'", [issueid, comicid, 'TPSE', 'DEM', 'WWT', '32P']).fetchone()
                 if snatchnzb is None:
                     logger.fdebug(module + ' Was not downloaded with Mylar and the usage of torrents. Disabling torrent manual post-processing completion notification.')
                 else:
@@ -1658,8 +1662,8 @@ class PostProcessor(object):
                 if mylar.REPLACE_SPACES:
                     #mylar.REPLACE_CHAR ...determines what to replace spaces with underscore or dot
                     nfilename = nfilename.replace(' ', mylar.REPLACE_CHAR)
-            nfilename = re.sub('[\,\:\?]', '', nfilename)
-            nfilename = re.sub('[\/]', '-', nfilename)
+            nfilename = re.sub('[\,\:\?\"\']', '', nfilename)
+            nfilename = re.sub('[\/\*]', '-', nfilename)
             self._log("New Filename: " + nfilename)
             logger.fdebug(module + ' New Filename: ' + nfilename)
 
@@ -1824,9 +1828,9 @@ class PostProcessor(object):
                             logger.fdebug(module + ' Story Arc Directory set to : ' + storyarcd)
                             grdst = storyarcd
                         else:
-                            logger.fdebug(module + ' Story Arc Directory set to : ' + mylar.GRABBAG_DIR)
-                            storyarcd = os.path.join(mylar.DESTINATION_DIR, mylar.GRABBAG_DIR)
-                            grdst = mylar.DESTINATION_DIR
+                            logger.fdebug(module + ' Story Arc Directory not configured. Setting to grabbag directory: ' + mylar.GRABBAG_DIR)
+                            storyarcd = mylar.GRABBAG_DIR
+                            grdst = mylar.GRABBAG_DIR
 
                         checkdirectory = filechecker.validateAndCreateDirectory(grdst, True, module=module)
                         if not checkdirectory:
@@ -1937,7 +1941,7 @@ class PostProcessor(object):
 
             if mylar.PUSHOVER_ENABLED:
                 pushover = notifiers.PUSHOVER()
-                pushover.notify(prline, "Download and Post-Processing completed", module=module)
+                pushover.notify(prline, prline2, module=module)
 
             if mylar.BOXCAR_ENABLED:
                 boxcar = notifiers.BOXCAR()
