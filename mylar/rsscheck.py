@@ -2,9 +2,9 @@
 
 import os, sys
 import re
-import lib.feedparser as feedparser
-import lib.requests as requests
-import lib.cfscrape as cfscrape
+import feedparser
+import requests
+import cfscrape
 import urlparse
 import ftpsshup
 import datetime
@@ -14,7 +14,7 @@ from StringIO import StringIO
 
 import mylar
 from mylar import db, logger, ftpsshup, helpers, auth32p, utorrent
-import mylar.torrent.clients.transmission as transmission
+import torrent.clients.transmission as transmission
 
 
 def _start_newznab_attr(self, attrsD):
@@ -110,10 +110,10 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
                 continue
             return
         elif pickfeed == "5" and srchterm is not None:  # demonoid search / non-RSS
-            feed = 'https://www.demonoid.pw/' + "files/?category=10&subcategory=All&language=0&seeded=2&external=2&query=" + str(srchterm) + "&uid=0&out=rss"
+            feed = 'https://www.demonoid.cc/' + "files/?category=10&subcategory=All&language=0&seeded=2&external=2&query=" + str(srchterm) + "&uid=0&out=rss"
             verify = bool(mylar.TPSE_VERIFY)
         elif pickfeed == "6":    # demonoid rss feed 
-            feed = 'https://www.demonoid.pw/rss/10.xml'
+            feed = 'https://www.demonoid.cc/rss/10.xml'
             feedtype = ' from the New Releases RSS Feed from Demonoid'
             verify = bool(mylar.TPSE_VERIFY)
         elif pickfeed == "999":    #WWT rss feed
@@ -146,8 +146,17 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
             payload = None
             
             try:
+                cf_cookievalue = None
                 scraper = cfscrape.create_scraper()
-                r = scraper.get(feed, verify=verify)#requests.get(feed, params=payload, verify=verify)
+                if pickfeed == '2':
+                    cf_cookievalue, cf_user_agent = scraper.get_tokens(feed)
+                    headers = {'Accept-encoding': 'gzip',
+                               'User-Agent':       cf_user_agent}
+
+                if cf_cookievalue:
+                    r = scraper.get(feed, verify=verify, cookies=cf_cookievalue, headers=headers)
+                else:
+                    r = scraper.get(feed, verify=verify)#requests.get(feed, params=payload, verify=verify)
             except Exception, e:
                 logger.warn('Error fetching RSS Feed Data from %s: %s' % (picksite, e))
                 return
@@ -828,7 +837,7 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
 
         try:
             scraper = cfscrape.create_scraper()
-            cf_cookievalue, cf_user_agent = cfscrape.get_tokens(url)
+            cf_cookievalue, cf_user_agent = scraper.get_tokens(url)
             headers = {'Accept-encoding': 'gzip',
                        'User-Agent':       cf_user_agent}
 
@@ -844,9 +853,9 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
         url = helpers.torrent_create('DEM', linkit)
 
         if url.startswith('https'):
-            dem_referrer = 'https://www.demonoid.pw/files/download/'
+            dem_referrer = 'https://www.demonoid.cc/files/download/'
         else:
-            dem_referrer = 'http://www.demonoid.pw/files/download/'
+            dem_referrer = 'http://www.demonoid.cc/files/download/'
 
         headers = {'Accept-encoding': 'gzip',
                    'User-Agent':      str(mylar.USER_AGENT),
@@ -887,7 +896,7 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
         #32P throws back an insecure warning because it can't validate against the CA. The below suppresses the message just for 32P instead of being displayed.
         #disable SSL warnings - too many 'warning' messages about invalid certificates
         try:
-            from lib.requests.packages.urllib3 import disable_warnings
+            from requests.packages.urllib3 import disable_warnings
             disable_warnings()
         except ImportError:
             #this is probably not necessary and redudant, but leaving in for the time being.
@@ -971,16 +980,10 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
 
     logger.fdebug('[' + site + '] Saved torrent file to : ' + filepath)
     if mylar.USE_UTORRENT:
-        utorrent.addTorrent(url)
-        if mylar.UTORRENT_LABEL:
-            torfile = open(filepath, 'rb')
-            tordata = torfile.read()
-            torfile.close()
-            hash = utorrent.calculate_torrent_hash(url, tordata)
-            time.sleep(10)
-            utorrent.labelTorrent(hash)
-        return "pass"
-        
+        uTC = utorrent.utorrentclient()
+        resp = uTC.addfile(filepath, filename)
+        return resp   #resp = pass / fail
+
     elif mylar.USE_WATCHDIR:
         if mylar.TORRENT_LOCAL:
             return "pass"

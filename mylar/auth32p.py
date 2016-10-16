@@ -3,7 +3,7 @@ import re
 import time
 import datetime
 import os
-import lib.requests as requests
+import requests
 from bs4 import BeautifulSoup
 from cookielib import LWPCookieJar
 
@@ -67,7 +67,7 @@ class info32p(object):
 
                 if not verify:
                 #32P throws back an insecure warning because it can't validate against the CA. The below suppresses the message just for 32P instead of being displa$
-                    from lib.requests.packages.urllib3.exceptions import InsecureRequestWarning
+                    from requests.packages.urllib3.exceptions import InsecureRequestWarning
                     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
                 # post to the login form
@@ -75,7 +75,7 @@ class info32p(object):
 
                 #need a way to find response code (200=OK), but returns 200 for everything even failed signons (returns a blank page)
                 #logger.info('[32P] response: ' + str(r.content))
-                soup = BeautifulSoup(r.content)
+                soup = BeautifulSoup(r.content, "html.parser")
                 soup.prettify()
 
                 if self.searchterm:
@@ -189,7 +189,7 @@ class info32p(object):
             s.cookies = cj
             time.sleep(1)  #just to make sure we don't hammer, 1s pause.
             t = s.get(url, params=params, verify=True)
-            soup = BeautifulSoup(t.content)
+            soup = BeautifulSoup(t.content, "html.parser")
             results = soup.find_all("a", {"class":"object-qtip"},{"data-type":"torrentgroup"})
 
             data = []
