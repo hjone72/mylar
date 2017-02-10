@@ -19,8 +19,10 @@ import datetime
 import re
 import platform
 import itertools
-import os
+import shutil
+import os, errno
 import mylar
+import logger
 
 def multikeysort(items, columns):
 
@@ -668,8 +670,7 @@ def ComicSort(comicorder=None, sequence=None, imported=None):
     if sequence:
         # if it's on startup, load the sql into a tuple for use to avoid record-locking
         i = 0
-        import logger
-        import db
+        import db, logger
         myDB = db.DBConnection()
         comicsort = myDB.select("SELECT * FROM comics ORDER BY ComicSortName COLLATE NOCASE")
         comicorderlist = []
@@ -982,7 +983,7 @@ def issuedigits(issnum):
             else:
                 try:
                     x = float(issnum)
-                    logger.info(x)
+                    #logger.info(x)
                     #validity check
                     if x < 0:
                         #logger.info("I've encountered a negative issue #: " + str(issnum) + ". Trying to accomodate.")
@@ -1022,18 +1023,23 @@ def issuedigits(issnum):
                             int_issnum = ord(tstord.lower())
                         else:
                             while (a < len(tstord)):
-                                try:
-                                    ordtot += ord(tstord[a].lower())  #lower-case the letters for simplicty
-                                except ValueError:
-                                    break
+                                ordtot += ord(tstord[a].lower())  #lower-case the letters for simplicty
                                 a+=1
                             int_issnum = (int(issno) * 1000) + ordtot
                     elif invchk == "true":
                         logger.fdebug('this does not have an issue # that I can parse properly.')
-                        int_issnum = 999999999999999
+                        return 999999999999999
                     else:
-                        logger.error(str(issnum) + 'this has an alpha-numeric in the issue # which I cannot account for.')
-                        int_issnum = 999999999999999
+                        if issnum == '9-5':
+                            issnum = u'9\xbd'
+                            logger.fdebug('issue: 9-5 is an invalid entry. Correcting to : ' + issnum)
+                            int_issnum = (9 * 1000) + (.5 * 1000)
+                        elif issnum == '112/113':
+                            int_issnum = (112 * 1000) + (.5 * 1000)
+                        else:
+                            logger.error(issnum + ' this has an alpha-numeric in the issue # which I cannot account for.')
+                            return 999999999999999
+
     return int_issnum
 
 
@@ -1319,9 +1325,10 @@ def havetotals(refreshit=None):
                 c_date = datetime.date(int(latestdate[:4]), int(latestdate[5:7]), 1)
                 n_date = datetime.date.today()
                 recentchk = (n_date - c_date).days
-                if comic['NewPublish']:
+                if comic['NewPublish'] is True:
                     recentstatus = 'Continuing'
                 else:
+                    #do this just incase and as an extra measure of accuracy hopefully.
                     if recentchk < 55:
                         recentstatus = 'Continuing'
                     else:
@@ -1349,7 +1356,10 @@ def havetotals(refreshit=None):
 
 def filesafe(comic):
     import unicodedata
-    u_comic = unicodedata.normalize('NFKD', comic).encode('ASCII', 'ignore').strip()
+    try:
+        u_comic = unicodedata.normalize('NFKD', comic).encode('ASCII', 'ignore').strip()
+    except TypeError:
+        u_comic = comic.encode('ASCII', 'ignore').strip()
 
     comicname_filesafe = re.sub('[\:\'\"\,\?\!\\\]', '', u_comic)
     comicname_filesafe = re.sub('[\/\*]', '-', comicname_filesafe)
@@ -1357,7 +1367,7 @@ def filesafe(comic):
     return comicname_filesafe
 
 def IssueDetails(filelocation, IssueID=None):
-    import zipfile, logger, shutil
+    import zipfile, logger
     from xml.dom.minidom import parseString
 
     dstlocation = os.path.join(mylar.CACHE_DIR, 'temp.zip')
@@ -1691,7 +1701,7 @@ def IssueDetails(filelocation, IssueID=None):
 
     return issuedetails
 
-def get_issue_title(IssueID=None, ComicID=None, IssueNumber=None):
+def get_issue_title(IssueID=None, ComicID=None, IssueNumber=None, IssueArcID=None):
     import db, logger
     myDB = db.DBConnection()
     if IssueID:
@@ -1706,8 +1716,14 @@ def get_issue_title(IssueID=None, ComicID=None, IssueNumber=None):
         if issue is None:
             issue = myDB.selectone('SELECT * FROM annuals WHERE IssueID=?', [IssueID]).fetchone()
             if issue is None:
-                logger.fdebug('Unable to locate given IssueID within the db. Assuming Issue Title is None.')
-                return None
+                if IssueArcID:
+                    issue = myDB.selectone('SELECT * FROM readlist WHERE IssueArcID=?', [IssueArcID]).fetchone()
+                    if issue is None:
+                        logger.fdebug('Unable to locate given IssueID within the db. Assuming Issue Title is None.')
+                        return None
+                else:
+                    logger.fdebug('Unable to locate given IssueID within the db. Assuming Issue Title is None.')
+                    return None
 
     return issue['IssueName']
 
@@ -1730,6 +1746,46 @@ def listLibrary():
         list = myDB.select("SELECT ReleaseComicId,ComicID FROM Annuals")
         for row in list:
             library[row['ReleaseComicId']] = row['ComicID']
+    return library
+
+def listStoryArcs():
+    import db
+    library = {}
+    myDB = db.DBConnection()
+    # Get Distinct Arc IDs
+    list = myDB.select("SELECT DISTINCT(StoryArcID) FROM readinglist");
+    for row in list:
+        library[row['StoryArcID']] = row['StoryArcID']
+    # Get Distinct CV Arc IDs
+    list = myDB.select("SELECT DISTINCT(CV_ArcID) FROM readinglist");
+    for row in list:
+        library[row['CV_ArcID']] = row['CV_ArcID']
+    return library
+
+def listIssues(weeknumber, year):
+    import db
+    library = []
+    myDB = db.DBConnection()
+    # Get individual issues
+    list = myDB.select("SELECT issues.Status, issues.ComicID, issues.IssueID, issues.ComicName, weekly.publisher, issues.Issue_Number from weekly, issues where weekly.IssueID = issues.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
+    for row in list:
+        library.append({'ComicID': row['ComicID'],
+                       'Status':  row['Status'],
+                       'IssueID': row['IssueID'],
+                       'ComicName': row['ComicName'],
+                       'Publisher': row['publisher'],
+                       'Issue_Number': row['Issue_Number']})
+    # Add the annuals
+    if mylar.ANNUALS_ON:
+        list = myDB.select("SELECT annuals.Status, annuals.ComicID, annuals.ReleaseComicID, annuals.IssueID, annuals.ComicName, weekly.publisher, annuals.Issue_Number from weekly, annuals where weekly.IssueID = annuals.IssueID and weeknumber = ? and year = ?", [int(weeknumber), year])
+        for row in list:
+            library.append({'ComicID': row['ComicID'],
+                            'Status':  row['Status'],
+                            'IssueID': row['IssueID'],
+                            'ComicName': row['ComicName'],
+                            'Publisher': row['publisher'],
+                            'Issue_Number': row['Issue_Number']})
+
     return library
 
 def incr_snatched(ComicID):
@@ -1791,9 +1847,10 @@ def duplicate_filecheck(filename, ComicID=None, IssueID=None, StoryArcID=None):
                     mylar.updater.dbUpdate(ComicIDList=cid, calledfrom='dupechk')
                     return duplicate_filecheck(filename, ComicID, IssueID, StoryArcID)
                 else:
-                    #not sure if this one is correct - should never actually get to this point.
-                    rtnval.append({'action':  "dupe_file",
-                                   'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])})
+                    #file is Archived, but no entry exists in the db for the location. Assume Archived, and don't post-process.
+                    logger.fdebug('[DUPECHECK] File is Archived but no file can be located within the db at the specified location. Assuming this was a manual archival and will not post-process this issue.')
+                    rtnval.append({'action':  "dont_dupe"})
+
             else:
                 rtnval.append({'action':  "dupe_file",
                                'to_dupe': os.path.join(series['ComicLocation'], dupchk['Location'])})
@@ -1882,8 +1939,7 @@ def create_https_certificates(ssl_cert, ssl_key):
     This code is stolen from SickBeard (http://github.com/midgetspy/Sick-Beard).
     """
 
-    from mylar import logger
-
+    import logger
     from OpenSSL import crypto
     from certgen import createKeyPair, createCertRequest, createCertificate, \
         TYPE_RSA, serial
@@ -1918,7 +1974,7 @@ def torrent_create(site, linkid, alt=None):
         else:
             url = 'http://torrentproject.se/torrent/' + str(linkid) + '.torrent'
     elif site == 'DEM':
-        url = 'https://www.demonoid.cc/files/download/' + str(linkid) + '/'
+        url = 'https://www.dnoid.me/files/download/' + str(linkid) + '/'
     elif site == 'WWT':
         url = 'https://worldwidetorrents.eu/download.php'
 
@@ -2103,53 +2159,362 @@ def conversion(value):
             value = value.decode('windows-1252')
     return value
 
-#def file_ops(path,dst):
+def clean_url(url):
+    leading = len(url) - len(url.lstrip(' '))
+    ending = len(url) - len(url.rstrip(' '))
+    if leading >= 1:
+        url = url[leading:]
+    if ending >=1:
+        url = url[:-ending]
+    return url
+
+def chunker(seq, size):
+    #returns a list from a large group of tuples by size (ie. for group in chunker(seq, 3))
+    return [seq[pos:pos + size] for pos in xrange(0, len(seq), size)]
+
+def cleanHost(host, protocol = True, ssl = False, username = None, password = None):
+    """  Return a cleaned up host with given url options set
+            taken verbatim from CouchPotato
+    Changes protocol to https if ssl is set to True and http if ssl is set to false.
+    >>> cleanHost("localhost:80", ssl=True)
+    'https://localhost:80/'
+    >>> cleanHost("localhost:80", ssl=False)
+    'http://localhost:80/'
+
+    Username and password is managed with the username and password variables
+    >>> cleanHost("localhost:80", username="user", password="passwd")
+    'http://user:passwd@localhost:80/'
+
+    Output without scheme (protocol) can be forced with protocol=False
+    >>> cleanHost("localhost:80", protocol=False)
+    'localhost:80'
+    """
+
+    if not '://' in host and protocol:
+        host = ('https://' if ssl else 'http://') + host
+
+    if not protocol:
+        host = host.split('://', 1)[-1]
+
+    if protocol and username and password:
+        try:
+            auth = re.findall('^(?:.+?//)(.+?):(.+?)@(?:.+)$', host)
+            if auth:
+                log.error('Cleanhost error: auth already defined in url: %s, please remove BasicAuth from url.', host)
+            else:
+                host = host.replace('://', '://%s:%s@' % (username, password), 1)
+        except:
+            pass
+
+    host = host.rstrip('/ ')
+    if protocol:
+        host += '/'
+
+    return host
+
+def checkthe_id(comicid=None, up_vals=None):
+    import db, logger
+    myDB = db.DBConnection()
+    if not up_vals:
+        chk = myDB.selectone("SELECT * from ref32p WHERE ComicID=?", [comicid]).fetchone()
+        if chk is None:
+           return None
+        else:
+           return {'id':     chk['ID'],
+                   'series': chk['Series']}
+    else:
+        ctrlVal = {'ComicID':     comicid}
+        newVal =  {'Series':      up_vals[0]['series'],
+                   'ID':          up_vals[0]['id']}
+        myDB.upsert("ref32p", newVal, ctrlVal)
+
+def updatearc_locs(storyarcid, issues):
+    import db, logger
+    myDB = db.DBConnection()
+    issuelist = []
+    for x in issues:
+        issuelist.append(x['IssueID'])
+    tmpsql = "SELECT a.comicid, a.comiclocation, b.comicid, b.status, b.issueid, b.location FROM comics as a INNER JOIN issues as b ON a.comicid = b.comicid WHERE b.issueid in ({seq})".format(seq=','.join(['?'] *(len(issuelist))))
+    chkthis = myDB.select(tmpsql, issuelist)
+    update_iss = []
+    if chkthis is None:
+        return
+    else:
+        for chk in chkthis:
+            if chk['Status'] == 'Downloaded':
+                pathsrc = os.path.join(chk['ComicLocation'], chk['Location'])
+                if not os.path.exists(pathsrc):
+                    if all([mylar.MULTIPLE_DEST_DIRS is not None, mylar.MULTIPLE_DEST_DIRS != 'None', os.path.join(mylar.MULTIPLE_DEST_DIRS, os.path.basename(chk['ComicLocation'])) != chk['ComicLocation'], os.path.exists(os.path.join(mylar.MULTIPLE_DEST_DIRS, os.path.basename(chk['ComicLocation'])))]):
+                        pathsrc = os.path.join(mylar.MULTIPLE_DEST_DIRS, os.path.basename(chk['ComicLocation']), chk['Location'])
+                    else:
+                        logger.fdebug(module + ' file does not exist in location: ' + pathdir + '. Cannot valid location - some options will not be available for this item.')
+                        continue
+
+#                update_iss.append({'IssueID':    chk['IssueID'],
+#                                   'Location':   pathdir})
+                arcinfo = None
+                for la in issues:
+                    if la['IssueID'] == chk['IssueID']:
+                        arcinfo = la
+                        break
+
+                if arcinfo is None:
+                    continue
+
+                if arcinfo['Publisher'] is None:
+                    arcpub = arcinfo['IssuePublisher']
+                else:
+                    arcpub = arcinfo['Publisher']
+
+                grdst = arcformat(arcinfo['StoryArc'], spantheyears(arcinfo['StoryArcID']), arcpub)
+                logger.info('grdst:' + grdst)
+
+                #send to renamer here if valid.
+                dfilename = chk['Location']
+                if mylar.RENAME_FILES:
+                    renamed_file = rename_param(arcinfo['ComicID'], arcinfo['ComicName'], arcinfo['IssueNumber'], chk['Location'], issueid=arcinfo['IssueID'], arc=arcinfo['StoryArc'])
+                    if renamed_file:
+                        dfilename = renamed_file['nfilename']
+
+                if mylar.READ2FILENAME:
+                    #logger.fdebug('readingorder#: ' + str(arcinfo['ReadingOrder']))
+                    #if int(arcinfo['ReadingOrder']) < 10: readord = "00" + str(arcinfo['ReadingOrder'])
+                    #elif int(arcinfo['ReadingOrder']) >= 10 and int(arcinfo['ReadingOrder']) <= 99: readord = "0" + str(arcinfo['ReadingOrder'])
+                    #else: readord = str(arcinfo['ReadingOrder'])
+                    readord = renamefile_readingorder(arcinfo['ReadingOrder'])
+                    dfilename = str(readord) + "-" + dfilename
+
+                pathdst = os.path.join(grdst, dfilename)
+
+                logger.fdebug('Destination Path : ' + pathdst)
+                logger.fdebug('Source Path : ' + pathsrc)
+                if not os.path.isfile(pathdst):
+                    logger.info('[' + mylar.ARC_FILEOPS.upper() + '] ' + pathsrc + ' into directory : ' + pathdst)
+
+                    try:
+                        #need to ensure that src is pointing to the series in order to do a soft/hard-link properly
+                        fileoperation = file_ops(pathsrc, pathdst, arc=True)
+                        if not fileoperation:
+                            raise OSError
+                    except (OSError, IOError):
+                        logger.fdebug('[' + mylar.ARC_FILEOPS.upper() + '] Failure ' + pathsrc + ' - check directories and manually re-run.')
+                        continue
+
+                update_iss.append({'IssueID':    chk['IssueID'],
+                                   'Location':   pathdst})
+
+    for ui in update_iss:
+        logger.info(ui['IssueID'] + ' to update location to: ' + ui['Location'])
+        myDB.upsert("readinglist", {'Location': ui['Location']}, {'IssueID': ui['IssueID'], 'StoryArcID': storyarcid})
+
+
+def spantheyears(storyarcid):
+    import db
+    myDB = db.DBConnection()
+
+    totalcnt = myDB.select("SELECT * FROM readinglist WHERE StoryArcID=?", [storyarcid])
+    lowyear = 9999
+    maxyear = 0
+    for la in totalcnt:
+        if la['IssueDate'] is None:
+            continue
+        else:
+            if int(la['IssueDate'][:4]) > maxyear:
+                maxyear = int(la['IssueDate'][:4])
+            if int(la['IssueDate'][:4]) < lowyear:
+                lowyear = int(la['IssueDate'][:4])
+
+    if maxyear == 0:
+        spanyears = la['SeriesYear']
+    elif lowyear == maxyear:
+        spanyears = str(maxyear)
+    else:
+        spanyears = str(lowyear) + ' - ' + str(maxyear) #la['SeriesYear'] + ' - ' + str(maxyear)
+    return spanyears
+
+def arcformat(arc, spanyears, publisher):
+    arcdir = filesafe(arc)
+    if publisher is None:
+        publisher = 'None'
+
+    values = {'$arc':         arcdir,
+              '$spanyears':   spanyears,
+              '$publisher':   publisher}
+
+    tmp_folderformat = mylar.ARC_FOLDERFORMAT
+
+    if publisher == 'None':
+        chunk_f_f = re.sub('\$publisher', '', tmp_folderformat)
+        chunk_f = re.compile(r'\s+')
+        tmp_folderformat = chunk_f.sub(' ', chunk_f_f)
+
+
+    if any([tmp_folderformat == '', tmp_folderformat is None]):
+        arcpath = arcdir
+    else:
+        arcpath = replace_all(tmp_folderformat, values)
+
+    if mylar.REPLACE_SPACES:
+        arcpath = arcpath.replace(' ', mylar.REPLACE_CHAR)
+
+    if arcpath.startswith('/'):
+        arcpath = arcpath[1:]
+    elif arcpath.startswith('//'):
+        arcpath = arcpath[2:]
+
+    if mylar.STORYARCDIR:
+        logger.info(mylar.DESTINATION_DIR)
+        logger.info('StoryArcs')
+        logger.info(arcpath)
+        dstloc = os.path.join(mylar.DESTINATION_DIR, 'StoryArcs', arcpath)
+    elif mylar.COPY2ARCDIR:
+        logger.warn('Story arc directory is not configured. Defaulting to grabbag directory: ' + mylar.GRABBAG_DIR)
+        dstloc = os.path.join(mylar.GRABBAG_DIR, arcpath)
+    else:
+        dstloc = None
+
+    return dstloc
+
+def file_ops(path,dst,arc=False,one_off=False):
 #    # path = source path + filename
 #    # dst = destination path + filename
+#    # arc = to denote if the file_operation is being performed as part of a story arc or not where the series exists on the watchlist already
+#    # one-off = if the file_operation is being performed where it is either going into the grabbab_dst or story arc folder
 
 #    #get the crc of the file prior to the operation and then compare after to ensure it's complete.
 #    crc_check = mylar.filechecker.crc(path)
-
 #    #will be either copy / move
-#    if mylar.FILE_OPS == 'copy':
-#        shutil.copy( path , dst )
+
+    if any([one_off, arc]):
+        action_op = mylar.ARC_FILEOPS
+    else:
+        action_op = mylar.FILE_OPTS
+
+    if action_op == 'copy' or (arc is True and any([action_op == 'copy', action_op == 'move'])):
+        try:
+            shutil.copy( path , dst )
 #        if crc_check == mylar.filechecker.crc(dst):
-#            return True
-#        else:
-#            return False
-#    elif mylar.FILE_OPS == 'move':
-#        shutil.move( path , dst )
+        except:
+            return False
+        return True
+
+    elif action_op == 'move':
+        try:
+            shutil.move( path , dst )
 #        if crc_check == mylar.filechecker.crc(dst):
-#            return True
-#        else:
-#            return False
+        except:
+            return False
+        return True
 
-#    elif mylar.FILE_OPS == 'hardlink':
-#        import sys
+    elif any([action_op == 'hardlink', action_op == 'softlink']):
+        if 'windows' not in mylar.OS_DETECT.lower():
+            # if it's an arc, then in needs to go reverse since we want to keep the src files (in the series directory)
+            if action_op == 'hardlink':
+                import sys
 
-#        # Open a file
-#        fd = os.open( path, os.O_RDWR|os.O_CREAT )
-#        os.close( fd )
+                # Open a file
+                try:
+                    fd = os.open( path, os.O_RDWR|os.O_CREAT )
+                    os.close( fd )
 
-#        # Now create another copy of the above file.
-#        os.link( path, dst )
+                    # Now create another copy of the above file.
+                    os.link( path, dst )
+                    logger.info('Created hard link successfully!!')
+                except OSError, e:
+                    if e.errno == errno.EXDEV:
+                        logger.warn('[' + str(e) + '] Hardlinking failure. Could not create hardlink - dropping down to copy mode so that this operation can complete. Intervention is required if you wish to continue using hardlinks.')
+                        try:
+                            shutil.copy( path, dst )
+                            logger.fdebug('Successfully copied file to : ' + dst) 
+                            return True
+                        except:
+                            return False
+                    else:
+                        logger.warn('[' + str(e) + '] Hardlinking failure. Could not create hardlink - Intervention is required if you wish to continue using hardlinks.')
+                        return False
 
-#        print "Created hard link successfully!!"
-#        return True
-#    elif mylar.FILE_OPS ==  'softlink':
-#        try:
-#            os.symlink( path, dst )
-#        except OSError, e:
-#            if e.errno == errno.EEXIST:
-#                os.remove(dst)
-#                os.symlink( path, dst )
-#            else:
-#                raise e
-#                print 'Unable to create symlink.'
-#                return False
-#        return True
-#    else:
-#        return False
+                hardlinks = os.lstat( dst ).st_nlink
+                if hardlinks > 1:
+                    logger.info('Created hard link [' + str(hardlinks) + '] successfully!! (' + dst + ')')
+                else:
+                    logger.warn('Hardlink cannot be verified. You should probably verify that it is created properly.')
+
+                return True
+
+            elif action_op ==  'softlink':
+                try:
+                    #first we need to copy the file to the new location, then create the symlink pointing from new -> original
+                    if not arc:
+                        shutil.move( path, dst )            
+                        if os.path.lexists( path ):
+                            os.remove( path )
+                        os.symlink( dst, path )
+                        logger.fdebug('Successfully created softlink [' + dst + ' --> ' + path + ']')
+                    else:
+                        os.symlink ( path, dst )
+                        logger.fdebug('Successfully created softlink [' + path + ' --> ' + dst + ']')
+                except OSError, e:
+                    #if e.errno == errno.EEXIST:
+                    #    os.remove(dst)
+                    #    os.symlink( path, dst )
+                    #else:
+                    logger.warn('[' + str(e) + '] Unable to create symlink. Dropping down to copy mode so that this operation can continue.')
+                    try:
+                        shutil.copy( dst, path )
+                        logger.fdebug('Successfully copied file [' + dst + ' --> ' + path + ']')
+                    except:
+                        return False
+
+                return True
+
+        else:
+            #Not ready just yet.
+            pass
+
+            #softlinks = shortcut (normally junctions are called softlinks, but for this it's being called a softlink)
+            #hardlinks = MUST reside on the same drive as the original
+            #junctions = not used (for directories across same machine only but different drives)
+
+            #option 1
+            #this one needs to get tested
+            #import ctypes
+            #kdll = ctypes.windll.LoadLibrary("kernel32.dll")
+            #kdll.CreateSymbolicLinkW(path, dst, 0)
+
+            #option 2
+            import lib.winlink as winlink
+            if mylar.FILE_OPTS == 'hardlink':
+                try:
+                    os.system(r'mklink /H dst path')
+                    logger.fdebug('Successfully hardlinked file [' + dst + ' --> ' + path + ']')
+                except OSError, e:
+                    logger.warn('[' + e + '] Unable to create symlink. Dropping down to copy mode so that this operation can continue.')
+                    try:
+                        shutil.copy( dst, path )
+                        logger.fdebug('Successfully copied file [' + dst + ' --> ' + path + ']')
+                    except:
+                        return False
+
+            elif mylar.FILE_OPTS == 'softlink':  #ie. shortcut.
+                try:
+                    shutil.move( path, dst )
+                    if os.path.lexists( path ):
+                        os.remove( path )
+                    os.system(r'mklink dst path')
+                    logger.fdebug('Successfully created symlink [' + dst + ' --> ' + path + ']')
+                except OSError, e:
+                    raise e
+                    logger.warn('[' + e + '] Unable to create softlink. Dropping down to copy mode so that this operation can continue.')
+                    try:
+                        shutil.copy( dst, path )
+                        logger.fdebug('Successfully copied file [' + dst + ' --> ' + path + ']')
+                    except:
+                        return False
+
+
+    else:
+        return False
+
 
 from threading import Thread
 

@@ -56,7 +56,12 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
         if Publisher == 'IDW Publishing':
             Publisher = 'IDW'
         logger.fdebug('Publisher is : ' + Publisher)
-    issuetitle = helpers.get_issue_title(IssueID)
+
+    if IssueArcID and not IssueID:
+        issuetitle = helpers.get_issue_title(IssueArcID)
+    else:
+        issuetitle = helpers.get_issue_title(IssueID)
+
     if issuetitle:
         logger.info('Issue Title given as : ' + issuetitle)
     else:
@@ -242,7 +247,7 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
                         loopit = len(chkthealt)
                         for calt in chkthealt:
                             AS_Alternate = re.sub('##', '', calt)
-                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate) + " " + str(ComicYear))
+                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate))
                             findit = NZB_SEARCH(AS_Alternate, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDate, StoreDate, searchprov, send_prov_count, IssDateFix, IssueID, UseFuzzy, newznab_host, ComicVersion=ComicVersion, SARC=SARC, IssueArcID=IssueArcID, RSS="yes", ComicID=ComicID, issuetitle=issuetitle, unaltered_ComicName=AS_Alternate, allow_packs=allow_packs)
                             if findit == 'yes':
                                 break
@@ -261,7 +266,7 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
                         loopit = len(chkthealt)
                         for calt in chkthealt:
                             AS_Alternate = re.sub('##', '', calt)
-                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate) + " " + str(ComicYear))
+                            logger.info(u"Alternate Search pattern detected...re-adjusting to : " + str(AS_Alternate))
                             findit = NZB_SEARCH(AS_Alternate, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDate, StoreDate, searchprov, send_prov_count, IssDateFix, IssueID, UseFuzzy, newznab_host, ComicVersion=ComicVersion, SARC=SARC, IssueArcID=IssueArcID, RSS="no", ComicID=ComicID, issuetitle=issuetitle, unaltered_ComicName=unaltered_ComicName, allow_packs=allow_packs)
                             if findit == 'yes':
                                 break
@@ -269,7 +274,7 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
 
             if searchprov == 'newznab':
                 searchprov = newznab_host[0].rstrip()
-            logger.info('Could not find Issue ' + IssueNumber + ' of ' + ComicName + '(' + str(SeriesYear) + ') using ' + str(searchprov) + ' [' + str(searchmode) + ']')
+            logger.info('Could not find Issue ' + IssueNumber + ' of ' + ComicName + ' (' + str(SeriesYear) + ') using ' + str(searchprov) + ' [' + str(searchmode) + ']')
             prov_count+=1
             #torprtmp+=1  #torprtmp-=1
 
@@ -289,17 +294,22 @@ def search_init(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueD
                 logger.info('Finished searching via :' + str(searchmode) + '. Issue not found - status kept as Wanted.')
             else:
                 logger.fdebug('Could not find issue doing a manual search via : ' + str(searchmode))
-            if searchprov == '32P' and mylar.MODE_32P == 0:
-                return findit, 'None'
+            if searchprov == '32P':
+                if mylar.MODE_32P == 0:
+                    return findit, 'None'
+                elif mylar.MODE_32P == 1 and searchmode == 'api':
+                    return findit, 'None'
             i+=1
 
     return findit, 'None'
 
 def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDate, StoreDate, nzbprov, prov_count, IssDateFix, IssueID, UseFuzzy, newznab_host=None, ComicVersion=None, SARC=None, IssueArcID=None, RSS=None, ComicID=None, issuetitle=None, unaltered_ComicName=None, allow_packs=None):
 
-    if any([allow_packs is None, allow_packs == 'None', allow_packs == 0]):
+    if any([allow_packs is None, allow_packs == 'None', allow_packs == 0]) and all([mylar.ENABLE_TORRENT_SEARCH, mylar.ENABLE_32P]):
         allow_packs = False
     logger.info('allow_packs set to :' + str(allow_packs))
+
+    newznab_local = False
 
     if nzbprov == 'nzb.su':
         apikey = mylar.NZBSU_APIKEY
@@ -316,6 +326,9 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
         #updated to include Newznab Name now
         name_newznab = newznab_host[0].rstrip()
         host_newznab = newznab_host[1].rstrip()
+        if name_newznab[-7:] == '[local]':
+            name_newznab = name_newznab[:-7].strip()
+            newznab_local = True
         apikey = newznab_host[3].rstrip()
         verify = bool(newznab_host[2].rstrip())
         if '#' in newznab_host[4].rstrip():
@@ -506,7 +519,6 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     logger.fdebug("Sending request to [" + str(nzbprov) + "] RSS for " + ComicName + " : " + str(mod_isssearch))
                     bb = rsscheck.torrentdbsearch(ComicName, mod_isssearch, ComicID, nzbprov)
                     rss = "yes"
-                    #if bb is not None: logger.fdebug("bb results: " + str(bb))
                 else:
                     cmname = re.sub("%20", " ", str(comsrc))
                     logger.fdebug("Sending request to RSS for " + str(findcomic) + " : " + str(mod_isssearch) + " (" + str(ComicYear) + ")")
@@ -515,7 +527,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     else: nzbprov_fix = nzbprov
                     bb = rsscheck.nzbdbsearch(findcomic, mod_isssearch, ComicID, nzbprov_fix, ComicYear, ComicVersion)
                     rss = "yes"
-                    #if bb is not None: logger.fdebug("bb results: " +  str(bb))
+                if bb is None:
+                    bb = 'no results'
             #this is the API calls
             else:
                 #32P is redudant now since only RSS works
@@ -525,12 +538,14 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     rss = "no"
                 if nzbprov == '32P':
                     if all([mylar.MODE_32P == 1,mylar.ENABLE_32P]):
-                        searchterm = {'series': ComicName, 'issue': findcomiciss, 'volume': ComicVersion, 'publisher': Publisher}
+                        searchterm = {'series': ComicName, 'id': ComicID, 'issue': findcomiciss, 'volume': ComicVersion, 'publisher': Publisher}
                         #first we find the id on the serieslist of 32P
                         #then we call the ajax against the id and issue# and volume (if exists)
                         a = auth32p.info32p(searchterm=searchterm)
                         bb = a.searchit()
                         rss = "no"
+                        if bb is None:
+                            bb = 'no results'
                     else:
                         bb = "no results"
                         rss = "no"
@@ -539,7 +554,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     logger.fdebug("Sending request to [TPSE] for " + str(cmname) + " : " + str(mod_isssearch))
                     bb = rsscheck.torrents(pickfeed='TPSE-SEARCH', seriesname=cmname, issue=mod_isssearch)#cmname,issue=mod_isssearch)
                     rss = "no"
-                    #if bb is not None: logger.fdebug("results: " + str(bb))
+                    if bb is None:
+                        bb = 'no results'
                 elif nzbprov != 'experimental':
                     if nzbprov == 'dognzb':
                         findurl = "https://api.dognzb.cr/api?t=search&q=" + str(comsearch) + "&o=xml&cat=7030"
@@ -557,7 +573,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                             torznab_fix = mylar.TORZNAB_HOST[:-1]
                         else:
                             torznab_fix = mylar.TORZNAB_HOST
-                        findurl = str(torznab_fix) + "?t=search&q=" + str(comsearch) + "&o=xml&cat=" + str(mylar.TORZNAB_CATEGORY)
+                        findurl = str(torznab_fix) + "?t=search&q=" + str(comsearch)
+                        if str(mylar.TORZNAB_CATEGORY): findurl += "&cat=" + str(mylar.TORZNAB_CATEGORY)
                         apikey = mylar.TORZNAB_APIKEY
                     else:
                         logger.warn('You have a blank newznab entry within your configuration. Remove it, save the config and restart mylar to fix things. Skipping this blank provider until fixed.')
@@ -595,7 +612,8 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                             else:
                                 hnc = host_newznab_fix
 
-                            if hnc[:3] == '10.' or hnc[:4] == '172.' or hnc[:4] == '192.' or hnc.startswith('localhost'):
+                            if any([hnc[:3] == '10.', hnc[:4] == '172.', hnc[:4] == '192.', hnc.startswith('localhost'), newznab_local]):
+                                logger.info('local domain bypass for ' + name_newznab + ' is active.')
                                 localbypass = True
 
                         if localbypass == False:
@@ -621,28 +639,34 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
 
                         try:
                             r = requests.get(findurl, params=payload, verify=verify, headers=headers)
-                        except Exception, e:
-                            logger.warn('Error fetching data from %s: %s' % (nzbprov, e))
-                            if 'HTTP Error 503' in e:
+                        except requests.exceptions.Timeout as e:
+                            logger.warn('Timeout occured fetching data from %s: %s' % (nzbprov, e))
+                            break
+                        except requests.exceptions.ConnectionError as e:
+                            logger.warn('Connection error trying to retrieve data from %s: %s' % (nzbprov, e))
+                            break
+                        except requests.exceptions.RequestException as e:
+                            logger.warn('General Error fetching data from %s: %s' % (nzbprov, e))
+                            if e.r.status_code == 503: 
+                                #HTTP Error 503
                                 logger.warn('Aborting search due to Provider unavailability')
                                 foundc = "no"
-                                break
-                            data = False
+                            break
 
-                        #logger.fdebug('status code: ' + str(r.status_code))
-
-                        if str(r.status_code) != '200':
-                            logger.warn('Unable to retrieve search results from ' + tmpprov + ' [Status Code returned: ' + str(r.status_code) + ']')
+                        try:
+                            if str(r.status_code) != '200':
+                                logger.warn('Unable to retrieve search results from ' + tmpprov + ' [Status Code returned: ' + str(r.status_code) + ']')
+                                data = False
+                            else:
+                                data = r.content
+                        except:
                             data = False
-                        else:
-                            data = r.content
 
                         if data:
                             bb = feedparser.parse(data)
                         else:
                             bb = "no results"
 
-                        #logger.info('Search results:' + str(bb))
                         try:
                             if bb['feed']['error']:
                                 logger.error('[ERROR CODE: ' + str(bb['feed']['error']['code']) + '] ' + str(bb['feed']['error']['description']))
@@ -657,7 +681,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                                     done = True
                                 break
                         except:
-                            #logger.info('no errors on data retrieval...proceeding')
+                            logger.info('no errors on data retrieval...proceeding')
                             pass
                 elif nzbprov == 'experimental':
                     #bb = parseit.MysterBinScrape(comsearch[findloop], comyear)
@@ -819,6 +843,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                         else:
                             # convert it to a tuple
                             dateconv = email.utils.parsedate_tz(pubdate)
+                            dateconv2 = datetime.datetime(*dateconv[:6])
                             try:
                                 # convert it to a numeric time, then subtract the timezone difference (+/- GMT)
                                 if dateconv[-1] is not None:
@@ -840,6 +865,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                             issconv = issue_convert.strftime('%a, %d %b %Y %H:%M:%S')
                         #convert it to a tuple
                         econv = email.utils.parsedate_tz(issconv)
+                        econv2 = datetime.datetime(*econv[:6])
                         #convert it to a numeric and drop the GMT/Timezone
                         try:
                             issuedate_int = time.mktime(econv[:len(econv) -1])
@@ -852,12 +878,20 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                                 issuedate_int = int(time.mktime(tm.timetuple()))
                             else:
                                 continue
-                        if postdate_int < issuedate_int:
-                            logger.fdebug(str(pubdate) + ' is before store date of ' + str(stdate) + '. Ignoring search result as this is not the right issue.')
-                            continue
-                        else:
-                            logger.fdebug(str(pubdate) + ' is after store date of ' + str(stdate))
-
+                        try:
+                            #try new method to get around issues populating in a diff timezone thereby putting them in a different day.
+                            if dateconv2.date() < econv2.date():
+                                logger.fdebug(str(pubdate) + ' is before store date of ' + str(stdate) + '. Ignoring search result as this is not the right issue.')
+                                continue
+                            else:
+                                logger.fdebug(str(pubdate) + ' is after store date of ' + str(stdate))
+                        except:
+                            #if the above fails, drop down to the integer compare method as a failsafe.
+                            if postdate_int < issuedate_int:
+                                logger.fdebug(str(pubdate) + ' is before store date of ' + str(stdate) + '. Ignoring search result as this is not the right issue.')
+                                continue
+                            else:
+                                logger.fdebug(str(pubdate) + ' is after store date of ' + str(stdate))
 # -- end size constaints.
 
                     if '(digital first)' in ComicTitle.lower(): #entry['title'].lower():
@@ -887,8 +921,9 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                     cleantitle = helpers.cleanName(cleantitle)
                     # this is new - if title contains a '&' in the title it will assume the filename has ended at that point
                     # which causes false positives (ie. wolverine & the x-men becomes the x-men, which matches on x-men.
+                    # handle escaped and/or possibly double escaped ampersands as well.
                     # 'the' is removed for comparisons later on
-                    if '&' in cleantitle: cleantitle = re.sub('[\&]', 'and', cleantitle)
+                    if '&' in cleantitle: cleantitle = re.sub('\&amp;(amp;)?|\&', 'and', cleantitle)
 
                     nzbname = cleantitle
 
@@ -1210,7 +1245,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
 
                             #find the pack range.
                             pack_issuelist = entry['issues']
-                            issueid_info = helpers.issue_find_ids(ComicName,ComicID, pack_issuelist, IssueNumber)
+                            issueid_info = helpers.issue_find_ids(ComicName, ComicID, pack_issuelist, IssueNumber)
                             logger.info('issueid_info:' + str(issueid_info))
                             if issueid_info['valid'] == True:
                                 logger.info('Issue Number ' + IssueNumber + ' exists within pack. Continuing.')
@@ -1513,6 +1548,7 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
 
                                 comicinfo.append({"ComicName":     ComicName,
                                                   "IssueNumber":   IssueNumber,
+                                                  "IssueDate":     IssueDate,
                                                   "comyear":       cyear,
                                                   "pack":          False,
                                                   "pack_numbers":  None,
@@ -1523,6 +1559,13 @@ def NZB_SEARCH(ComicName, IssueNumber, ComicYear, SeriesYear, Publisher, IssueDa
                                 foundc = "no"
 
                     if downloadit:
+                        try:
+                            if entry['chkit']:
+                                helpers.checkthe_id(ComicID, entry['chkit'])
+
+                        except:
+                            pass
+
                         #generate nzbname
                         nzbname = nzbname_create(nzbprov, info=comicinfo, title=ComicTitle) #entry['title'])
 
@@ -1870,7 +1913,7 @@ def nzbname_create(provider, title=None, info=None):
         # let's change all space to decimals for simplicity
         logger.fdebug('[SEARCHER] entry[title]: ' + title)
         #gotta replace & or escape it
-        nzbname = re.sub("\&", 'and', title)
+        nzbname = re.sub('\&amp;(amp;)?|\&', 'and', title)
         nzbname = re.sub('[\,\:\?\'\+]', '', nzbname)
         nzbname = re.sub('[\(\)]', ' ', nzbname)
         logger.fdebug('[SEARCHER] nzbname (remove chars): ' + nzbname)
@@ -1934,23 +1977,24 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
             #one-off information
             logger.fdebug("ComicName: " + ComicName)
             logger.fdebug("Issue: " + str(IssueNumber))
-            logger.fdebug("Year: " + str(ComicYear))
-            logger.fdebug("IssueDate:" + str(IssueDate))
+            logger.fdebug("Year: " + str(comyear))
+            logger.fdebug("IssueDate: " + comicinfo[0]['IssueDate'])
         logger.info(u"Found " + ComicName + " (" + str(comyear) + ") issue: " + IssueNumber + " using " + str(tmpprov))
 
     logger.fdebug("link given by: " + str(nzbprov))
 
     if mylar.FAILED_DOWNLOAD_HANDLING:
-        if nzbid is not None:
-            try:
-                # only nzb providers will have a filen, try it and pass exception
-                if IssueID is None:
-                    logger.fdebug('One-off mode was initiated - Failed Download handling for : ' + ComicName + ' #' + str(IssueNumber))
-                    comicinfo = {"ComicName":   ComicName,
-                                 "IssueNumber": IssueNumber}
-                    return FailedMark(ComicID=ComicID, IssueID=IssueID, id=nzbid, nzbname=nzbname, prov=nzbprov, oneoffinfo=comicinfo)
-            except:
-                pass
+        if all([nzbid is not None, IssueID is not None]):
+            # --- this causes any possible snatch to get marked as a Failed download when doing a one-off search...
+            #try:
+            #    # only nzb providers will have a filen, try it and pass exception
+            #    if IssueID is None:
+            #        logger.fdebug('One-off mode was initiated - Failed Download handling for : ' + ComicName + ' #' + str(IssueNumber))
+            #        comicinfo = {"ComicName":   ComicName,
+            #                     "IssueNumber": IssueNumber}
+            #        return FailedMark(ComicID=ComicID, IssueID=IssueID, id=nzbid, nzbname=nzbname, prov=nzbprov, oneoffinfo=comicinfo)
+            #except:
+            #    pass
             call_the_fail = Failed.FailedProcessor(nzb_name=nzbname, id=nzbid, issueid=IssueID, comicid=ComicID, prov=tmpprov)
             check_the_fail = call_the_fail.failed_check()
             if check_the_fail == 'Failed':
@@ -1958,7 +2002,9 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
                 return "downloadchk-fail"
             elif check_the_fail == 'Good':
                 logger.fdebug('[FAILED_DOWNLOAD_CHECKER] This is not in the failed downloads list. Will continue with the download.')
-
+        else:
+            logger.fdebug('[FAILED_DOWNLOAD_CHECKER] Failed download checking is not available for one-off downloads atm. Fixed soon!')
+ 
     if link and all([nzbprov != 'TPSE', nzbprov != 'WWT', nzbprov != 'DEM', nzbprov != '32P', nzbprov != 'Torznab']):
 
         #generate nzbid here.
@@ -2080,13 +2126,16 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
                 alt_nzbname = re.sub('.nzb', '', filen).strip()
                 alt_nzbname = re.sub('[\s+]', ' ', alt_nzbname)
                 alt_nzbname = re.sub('[\s\_]', '.', alt_nzbname)
-                logger.info('filen: ' + alt_nzbname + ' -- nzbname: ' + nzbname + ' are not identical. Storing extra value as : ' + alt_nzbname)
+                logger.info('filen: ' + filen + ' -- nzbname: ' + nzbname + ' are not identical. Storing extra value as : ' + alt_nzbname)
 
             #make sure the cache directory exists - if not, create it (used for storing nzbs).
             if os.path.exists(mylar.CACHE_DIR):
-                logger.fdebug("Cache Directory successfully found at : " + mylar.CACHE_DIR + ". Ensuring proper permissions.")
-                #enforce the permissions here to ensure the lower portion writes successfully
-                filechecker.setperms(mylar.CACHE_DIR, True)
+                if mylar.ENFORCE_PERMS:
+                    logger.fdebug("Cache Directory successfully found at : " + mylar.CACHE_DIR + ". Ensuring proper permissions.")
+                    #enforce the permissions here to ensure the lower portion writes successfully
+                    filechecker.setperms(mylar.CACHE_DIR, True)
+                else:
+                    logger.fdebug("Cache Directory successfully found at : " + mylar.CACHE_DIR)
             else:
                 #let's make the dir.
                 logger.fdebug("Could not locate Cache Directory, attempting to create at : " + mylar.CACHE_DIR)
@@ -2130,7 +2179,6 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
         logger.fdebug("Torrent Provider:" + nzbprov)
         foundc = "yes"
 
-
         rcheck = rsscheck.torsend2client(ComicName, IssueNumber, comyear, link, nzbprov)
         if rcheck == "fail":
             if mylar.FAILED_DOWNLOAD_HANDLING:
@@ -2160,6 +2208,8 @@ def searcher(nzbprov, nzbname, comicinfo, link, IssueID, ComicID, tmpprov, direc
             sent_to = "your rTorrent client"
         elif mylar.USE_TRANSMISSION:
             sent_to = "your Transmission client"
+        elif mylar.USE_DELUGE:
+            sent_to = "your Deluge client"            
     #end torrents
 
     else:
@@ -2381,6 +2431,10 @@ def notify_snatch(nzbname, sent_to, modcomicname, comyear, IssueNumber, nzbprov)
         logger.info(u"Sending Pushbullet notification")
         pushbullet = notifiers.PUSHBULLET()
         pushbullet.notify(snline=snline, snatched=nzbname, sent_to=sent_to, prov=nzbprov, method='POST')
+    if mylar.TELEGRAM_ENABLED and mylar.TELEGRAM_ONSNATCH:
+        logger.info(u"Sending Telegram notification")
+        telegram = notifiers.TELEGRAM()
+        telegram.notify(snline, nzbname)
 
     return
 
